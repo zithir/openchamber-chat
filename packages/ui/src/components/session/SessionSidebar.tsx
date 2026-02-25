@@ -60,14 +60,8 @@ import {
   RiFileCopyLine,
   RiFolderAddLine,
   RiFolderLine,
-  RiGitBranchLine,
-  RiGitPullRequestLine,
-  RiGitRepositoryLine,
-  RiNodeTree,
   RiStickyNoteLine,
   RiLinkUnlinkM,
-
-  RiGithubLine,
 
   RiMore2Line,
   RiPencilAiLine,
@@ -88,7 +82,6 @@ import type { WorktreeMetadata } from '@/types/worktree';
 import { opencodeClient } from '@/lib/opencode/client';
 import { checkIsGitRepository } from '@/lib/gitApi';
 import { getSafeStorage } from '@/stores/utils/safeStorage';
-import { createWorktreeOnly, createWorktreeSession } from '@/lib/worktreeSessionCreator';
 import { getRootBranch } from '@/lib/worktrees/worktreeStatus';
 import { useGitStore } from '@/stores/useGitStore';
 import { useDeviceInfo } from '@/lib/device';
@@ -407,14 +400,10 @@ interface SortableProjectItemProps {
   isHovered: boolean;
   isDesktopShell: boolean;
   isStuck: boolean;
-  hideDirectoryControls: boolean;
   mobileVariant: boolean;
   onToggle: () => void;
   onHoverChange: (hovered: boolean) => void;
   onNewSession: () => void;
-  onNewWorktreeSession?: () => void;
-  onNewSessionFromGitHubIssue?: () => void;
-  onNewSessionFromGitHubPR?: () => void;
   onOpenMultiRunLauncher: () => void;
   onRenameStart: () => void;
   onRenameSave: () => void;
@@ -440,14 +429,10 @@ const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
   isHovered,
   isDesktopShell,
   isStuck,
-  hideDirectoryControls,
   mobileVariant,
   onToggle,
   onHoverChange,
   onNewSession,
-  onNewWorktreeSession,
-  onNewSessionFromGitHubIssue,
-  onNewSessionFromGitHubPR,
   onOpenMultiRunLauncher,
   onRenameStart,
   onRenameSave,
@@ -593,31 +578,13 @@ const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px]">
-                {showCreateButtons && isRepo && !hideDirectoryControls && settingsAutoCreateWorktree && onNewSession && (
+                {showCreateButtons && onNewSession && (
                   <DropdownMenuItem onClick={onNewSession}>
                     <RiAddLine className="mr-1.5 h-4 w-4" />
                     New Session
                   </DropdownMenuItem>
                 )}
-                {showCreateButtons && isRepo && !hideDirectoryControls && !settingsAutoCreateWorktree && onNewWorktreeSession && (
-                  <DropdownMenuItem onClick={onNewWorktreeSession}>
-                    <RiGitBranchLine className="mr-1.5 h-4 w-4" />
-                    New Session in Worktree
-                  </DropdownMenuItem>
-                )}
-                {showCreateButtons && isRepo && !hideDirectoryControls && onNewSessionFromGitHubIssue && (
-                  <DropdownMenuItem onClick={onNewSessionFromGitHubIssue}>
-                    <RiGithubLine className="mr-1.5 h-4 w-4" />
-                    New session from GitHub issue
-                  </DropdownMenuItem>
-                )}
-                {showCreateButtons && isRepo && !hideDirectoryControls && onNewSessionFromGitHubPR && (
-                  <DropdownMenuItem onClick={onNewSessionFromGitHubPR}>
-                    <RiGitPullRequestLine className="mr-1.5 h-4 w-4" />
-                    New session from GitHub PR
-                  </DropdownMenuItem>
-                )}
-                {showCreateButtons && isRepo && !hideDirectoryControls && (
+                {showCreateButtons && (
                   <DropdownMenuItem onClick={onOpenMultiRunLauncher}>
                     <ArrowsMerge className="mr-1.5 h-4 w-4" />
                     New Multi-Run
@@ -638,29 +605,6 @@ const SortableProjectItem: React.FC<SortableProjectItemProps> = ({
             </DropdownMenu>
           ) : null}
 
-          {showCreateButtons && isRepo && !hideDirectoryControls && onNewWorktreeSession && settingsAutoCreateWorktree && !isRenaming && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onNewWorktreeSession();
-                  }}
-                  className={cn(
-                    'inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 hover:text-foreground hover:bg-interactive-hover/50 flex-shrink-0',
-                    mobileVariant ? 'opacity-70' : 'opacity-100',
-                  )}
-                  aria-label="New session in worktree"
-                >
-                  <RiGitBranchLine className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" sideOffset={4}>
-                <p>New session in worktree</p>
-              </TooltipContent>
-            </Tooltip>
-          )}
           {showCreateButtons && (!settingsAutoCreateWorktree || !isRepo) && !isRenaming && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -723,10 +667,9 @@ const SortableGroupItemBase: React.FC<{
 
 const SortableGroupItem = React.memo(SortableGroupItemBase);
 
-const GroupDragOverlayBase: React.FC<{ label: string; showBranchIcon: boolean; width?: number }> = ({ label, showBranchIcon, width }) => {
+const GroupDragOverlayBase: React.FC<{ label: string; width?: number }> = ({ label, width }) => {
   return (
     <div style={width ? { width: `${width}px` } : undefined} className="h-8 min-w-[180px] max-w-[320px] rounded-sm border border-border bg-sidebar px-2 shadow-lg flex items-center gap-1.5">
-      {showBranchIcon ? <RiGitBranchLine className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" /> : null}
       <p className="text-[15px] font-semibold truncate text-foreground">{label}</p>
     </div>
   );
@@ -1501,19 +1444,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       const groupedNodes = new Map<string, SessionNode[]>();
       const groupOrder = new Map<string, number>();
 
-      const getGroupKey = (session: Session) => {
-        const metadataPath = normalizePath(worktreeMetadata.get(session.id)?.path ?? null);
-        const sessionDirectory = normalizePath((session as Session & { directory?: string | null }).directory ?? null);
-        const normalizedDir = metadataPath ?? sessionDirectory;
-        if (normalizedDir && normalizedDir !== normalizedProjectRoot && worktreeByPath.has(normalizedDir)) {
-          return normalizedDir;
-        }
+      const getGroupKey = () => {
         return normalizedProjectRoot ?? '__project_root__';
       };
 
       roots.forEach((session, index) => {
         const node = buildProjectNode(session);
-        const groupKey = getGroupKey(session);
+        const groupKey = getGroupKey();
         if (!groupedNodes.has(groupKey)) {
           groupedNodes.set(groupKey, []);
           groupOrder.set(groupKey, index);
@@ -1534,56 +1471,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         directory: normalizedProjectRoot,
         sessions: groupedNodes.get(rootKey) ?? [],
       }];
-
-      const sortedWorktrees = [...availableWorktrees].sort((a, b) => {
-        const aLabel = (a.label || a.branch || a.name || a.path || '').toLowerCase();
-        const bLabel = (b.label || b.branch || b.name || b.path || '').toLowerCase();
-        return aLabel.localeCompare(bLabel);
-      });
-
-      sortedWorktrees.forEach((meta) => {
-        const directory = normalizePath(meta.path) ?? meta.path;
-        const currentBranch = gitDirectories.get(directory)?.status?.current?.trim() || null;
-        const metadataBranch = meta.branch?.trim() || null;
-        const shouldSyncLabelWithBranch = Boolean(
-          currentBranch
-          && metadataBranch
-          && meta.label
-          && normalizeForBranchComparison(meta.label) === normalizeForBranchComparison(metadataBranch),
-        );
-        const label = shouldSyncLabelWithBranch
-          ? currentBranch!
-          : (meta.label || meta.name || formatDirectoryName(directory, homeDirectory) || directory);
-        groups.push({
-          id: `worktree:${directory}`,
-          label,
-          branch: currentBranch || metadataBranch,
-          description: formatPathForDisplay(directory, homeDirectory),
-          isMain: false,
-          worktree: meta,
-          directory,
-          sessions: groupedNodes.get(directory) ?? [],
-        });
-      });
-
-      const represented = new Set(groups.map((group) => group.directory).filter((value): value is string => Boolean(value)));
-      const orphanKeys = Array.from(groupedNodes.keys())
-        .filter((key) => !represented.has(key) && key !== rootKey)
-        .sort((a, b) => (groupOrder.get(a) ?? 0) - (groupOrder.get(b) ?? 0));
-
-      orphanKeys.forEach((directory) => {
-        const currentBranch = gitDirectories.get(directory)?.status?.current?.trim() || null;
-        groups.push({
-          id: `worktree:orphan:${directory}`,
-          label: formatDirectoryName(directory, homeDirectory) || directory,
-          branch: currentBranch,
-          description: formatPathForDisplay(directory, homeDirectory),
-          isMain: false,
-          worktree: null,
-          directory,
-          sessions: groupedNodes.get(directory) ?? [],
-        });
-      });
 
       return groups;
     },
@@ -2555,9 +2442,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
       };
       const allGroupSessions = collectGroupSessions(group.sessions);
       const normalizedGroupDirectory = normalizePath(group.directory ?? null);
-      const isGitProject = projectId && projectRepoStatus.has(projectId)
-        ? Boolean(projectRepoStatus.get(projectId))
-        : lastRepoStatusRef.current;
       const showBranchSubtitle = !group.isMain && isBranchDifferentFromLabel(group.branch, group.label);
       const isActiveGroup = Boolean(
         normalizedGroupDirectory
@@ -2731,9 +2615,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
           >
             {!hideGroupLabel ? (
               <div className="min-w-0 flex items-center gap-1.5 pl-1.5">
-                {!group.isMain || isGitProject ? (
-                  <RiGitBranchLine className="h-3.5 w-3.5 flex-shrink-0 text-muted-foreground" />
-                ) : null}
                 <div className="min-w-0 flex flex-col justify-center">
                   <p className={cn('text-[15px] font-semibold truncate', isActiveGroup ? 'text-primary' : 'text-muted-foreground')}>
                     {group.label}
@@ -3024,93 +2905,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
             <div className="-ml-1 flex h-8 items-center">
               {activeProjectForHeader ? (
               <div className="flex h-8 -translate-y-px items-center gap-1.5 rounded-md pl-0 pr-1">
-              {stableActiveProjectIsRepo ? (
-                <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!activeProjectForHeader) {
-                        return;
-                      }
-                      if (activeProjectForHeader.id !== activeProjectId) {
-                        setActiveProject(activeProjectForHeader.id);
-                      }
-                      const newWorktreePath = await createWorktreeOnly();
-                      if (!newWorktreePath) {
-                        return;
-                      }
-                      setActiveMainTab('chat');
-                      if (mobileVariant) {
-                        setSessionSwitcherOpen(false);
-                      }
-                      openNewSessionDraft({ directoryOverride: newWorktreePath });
-                    }}
-                    className={headerActionButtonClass}
-                    aria-label="New worktree"
-                  >
-                    <RiNodeTree className="h-4.5 w-4.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>New worktree</p></TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setIssuePickerOpen(true)}
-                    className={headerActionButtonClass}
-                    aria-label="New from issue"
-                  >
-                    <RiGithubLine className="h-4.5 w-4.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>New from issue</p></TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setPullRequestPickerOpen(true)}
-                    className={headerActionButtonClass}
-                    aria-label="New from PR"
-                  >
-                    <RiGitPullRequestLine className="h-4.5 w-4.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>New from PR</p></TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={openMultiRunLauncher}
-                    className={headerActionButtonClass}
-                    aria-label="New multi-run"
-                  >
-                    <ArrowsMerge className="h-4.5 w-4.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom" sideOffset={4}><p>New multi-run</p></TooltipContent>
-              </Tooltip>
-                </>
-              ) : null}
-              {stableActiveProjectIsRepo && branchPickerProject ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => setIsBranchPickerOpen(true)}
-                      className={headerActionButtonClass}
-                      aria-label="Manage branches"
-                    >
-                      <RiGitRepositoryLine className="h-4.5 w-4.5" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" sideOffset={4}><p>Manage branches</p></TooltipContent>
-                </Tooltip>
-              ) : null}
               {useMobileNotesPanel ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -3143,7 +2937,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                   </Tooltip>
                   <DropdownMenuContent align="start" className="w-[340px] p-0">
                     <ProjectNotesTodoPanel
-                      projectRef={activeProjectRefForHeader}
+                      projectRef={activeProjectForHeader}
                       canCreateWorktree={stableActiveProjectIsRepo}
                       onActionComplete={() => setProjectNotesPanelOpen(false)}
                     />
@@ -3219,7 +3013,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                     isHovered={isHovered}
                     isDesktopShell={isDesktopShellRuntime}
                     isStuck={stuckProjectHeaders.has(projectKey)}
-                    hideDirectoryControls={hideDirectoryControls}
                     mobileVariant={mobileVariant}
                     onToggle={() => toggleProject(projectKey)}
                     onHoverChange={(hovered) => setHoveredProjectId(hovered ? projectKey : null)}
@@ -3232,28 +3025,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                         setSessionSwitcherOpen(false);
                       }
                       openNewSessionDraft({ directoryOverride: project.normalizedPath });
-                    }}
-                    onNewWorktreeSession={() => {
-                      if (projectKey !== activeProjectId) {
-                        setActiveProject(projectKey);
-                      }
-                      setActiveMainTab('chat');
-                      if (mobileVariant) {
-                        setSessionSwitcherOpen(false);
-                      }
-                      createWorktreeSession();
-                    }}
-                    onNewSessionFromGitHubIssue={() => {
-                      if (projectKey !== activeProjectId) {
-                        setActiveProject(projectKey);
-                      }
-                      setIssuePickerOpen(true);
-                    }}
-                    onNewSessionFromGitHubPR={() => {
-                      if (projectKey !== activeProjectId) {
-                        setActiveProject(projectKey);
-                      }
-                      setPullRequestPickerOpen(true);
                     }}
                     onOpenMultiRunLauncher={() => {
                       if (projectKey !== activeProjectId) {
@@ -3331,8 +3102,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
                                   if (!dragGroup) {
                                     return null;
                                   }
-                                  const showBranchIcon = !dragGroup.isMain || Boolean(isRepo);
-                                  return <GroupDragOverlay label={dragGroup.label} showBranchIcon={showBranchIcon} width={activeDraggedGroupWidth ?? undefined} />;
+                                  return <GroupDragOverlay label={dragGroup.label} width={activeDraggedGroupWidth ?? undefined} />;
                                 })()
                               ) : null}
                             </DragOverlay>

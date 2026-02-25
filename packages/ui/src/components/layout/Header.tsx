@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { AnimatedTabs } from '@/components/ui/animated-tabs';
 
-import { RiArrowLeftSLine, RiChat4Line, RiCheckLine, RiCloseLine, RiCommandLine, RiFileTextLine, RiFolder6Line, RiFolderAddLine, RiGithubFill, RiLayoutLeftLine, RiLayoutRightLine, RiMore2Fill, RiPencilLine, RiPlayListAddLine, RiRefreshLine, RiServerLine, RiStackLine, RiTerminalBoxLine, RiTimerLine, type RemixiconComponentType } from '@remixicon/react';
+import { RiAddLine, RiArrowLeftSLine, RiChat4Line, RiCheckLine, RiCloseLine, RiCommandLine, RiFileTextLine, RiFolder6Line, RiFolderAddLine, RiGithubFill, RiLayoutLeftLine, RiLayoutRightLine, RiMore2Fill, RiPencilLine, RiPlayListAddLine, RiRefreshLine, RiServerLine, RiStackLine, RiTimerLine, type RemixiconComponentType } from '@remixicon/react';
 import { DiffIcon } from '@/components/icons/DiffIcon';
 import { useUIStore, type MainTab } from '@/stores/useUIStore';
 import { useConfigStore } from '@/stores/useConfigStore';
@@ -151,7 +151,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const setSessionSwitcherOpen = useUIStore((state) => state.setSessionSwitcherOpen);
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
-  const toggleBottomTerminal = useUIStore((state) => state.toggleBottomTerminal);
   const toggleRightSidebar = useUIStore((state) => state.toggleRightSidebar);
   const openContextOverview = useUIStore((state) => state.openContextOverview);
   const openContextPlan = useUIStore((state) => state.openContextPlan);
@@ -178,6 +177,7 @@ export const Header: React.FC<HeaderProps> = ({
   const availableWorktreesByProject = useSessionStore((state) => state.availableWorktreesByProject);
   const sessionStatus = useSessionStore((state) => state.sessionStatus);
   const sessionAttentionStates = useSessionStore((state) => state.sessionAttentionStates);
+  const openNewSessionDraft = useSessionStore((state) => state.openNewSessionDraft);
   const quotaResults = useQuotaStore((state) => state.results);
   const fetchAllQuotas = useQuotaStore((state) => state.fetchAllQuotas);
   const isQuotaLoading = useQuotaStore((state) => state.isLoading);
@@ -295,7 +295,7 @@ export const Header: React.FC<HeaderProps> = ({
   // --- Project tabs state (desktop, non-vscode only) ---
   const isVSCode = React.useMemo(() => isVSCodeRuntime(), []);
   const showProjectTabs = !isMobile && !isVSCode && projects.length > 0;
-  const showDesktopHeaderContextUsage = !isVSCode && activeMainTab === 'chat' && !!stableDesktopContextUsage && stableDesktopContextUsage.totalTokens > 0;
+  const showDesktopHeaderContextUsage = !isMobile && !isVSCode && activeMainTab === 'chat' && !!stableDesktopContextUsage && stableDesktopContextUsage.totalTokens > 0;
   const tauriIpcAvailable = React.useMemo(() => isTauriShell(), []);
 
   const [editingProject, setEditingProject] = React.useState<{ id: string; name: string; path: string; icon?: string | null; color?: string | null } | null>(null);
@@ -1019,17 +1019,7 @@ export const Header: React.FC<HeaderProps> = ({
 
     if (isMobile) {
       base.push(
-        {
-          id: 'diff',
-          label: 'Diff',
-          icon: 'diff',
-        },
         { id: 'files', label: 'Files', icon: RiFolder6Line },
-        {
-          id: 'terminal',
-          label: 'Terminal',
-          icon: RiTerminalBoxLine,
-        },
       );
     }
 
@@ -1041,7 +1031,7 @@ export const Header: React.FC<HeaderProps> = ({
   }, [shortcutOverrides]);
 
   useEffect(() => {
-    if (!isMobile && (activeMainTab === 'git' || activeMainTab === 'terminal' || activeMainTab === 'diff' || activeMainTab === 'files')) {
+    if (!isMobile && (activeMainTab === 'diff' || activeMainTab === 'files')) {
       setActiveMainTab('chat');
     }
   }, [activeMainTab, isMobile, setActiveMainTab]);
@@ -1986,23 +1976,8 @@ export const Header: React.FC<HeaderProps> = ({
                   })}
                 </div>
               )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        <Tooltip delayDuration={500}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={toggleBottomTerminal}
-              aria-label="Toggle terminal panel"
-              className={headerIconButtonClass}
-            >
-              <RiTerminalBoxLine className="h-5 w-5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Terminal panel ({shortcutLabel('toggle_terminal')})</p>
-          </TooltipContent>
-        </Tooltip>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <Tooltip delayDuration={500}>
           <TooltipTrigger asChild>
@@ -2153,6 +2128,27 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <RiPlayListAddLine className="h-5 w-5" />
           </button>
+        )}
+
+        {/* New Session button */}
+        {!isSessionSwitcherOpen && (
+          <Tooltip delayDuration={500}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  openNewSessionDraft();
+                }}
+                className={headerIconButtonClass}
+                aria-label="New session"
+              >
+                <RiAddLine className="h-5 w-5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>New session</p>
+            </TooltipContent>
+          </Tooltip>
         )}
 
         {isSessionSwitcherOpen && (

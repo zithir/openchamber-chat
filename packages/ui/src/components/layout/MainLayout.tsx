@@ -2,7 +2,6 @@ import React, { useRef, useEffect } from 'react';
 import { motion, useMotionValue, animate } from 'motion/react';
 import { RiSettings3Line } from '@remixicon/react';
 import { Header } from './Header';
-import { BottomTerminalDock } from './BottomTerminalDock';
 import { Sidebar } from './Sidebar';
 import { RightSidebar } from './RightSidebar';
 import { RightSidebarTabs } from './RightSidebarTabs';
@@ -23,7 +22,7 @@ import { useDeviceInfo } from '@/lib/device';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { cn } from '@/lib/utils';
 
-import { ChatView, PlanView, GitView, DiffView, TerminalView, FilesView, SettingsView, SettingsWindow } from '@/components/views';
+import { ChatView, PlanView, GitView, DiffView, FilesView, SettingsView, SettingsWindow } from '@/components/views';
 
 // Mobile drawer width as screen percentage
 const MOBILE_DRAWER_WIDTH_PERCENT = 85;
@@ -55,7 +54,6 @@ export const MainLayout: React.FC = () => {
     const {
         isSidebarOpen,
         isRightSidebarOpen,
-        isBottomTerminalOpen,
         setRightSidebarOpen,
         setBottomTerminalOpen,
         activeMainTab,
@@ -538,8 +536,6 @@ export const MainLayout: React.FC = () => {
                 return <GitView />;
             case 'diff':
                 return <DiffView />;
-            case 'terminal':
-                return <TerminalView />;
             case 'files':
                 return <FilesView />;
             default:
@@ -566,19 +562,11 @@ export const MainLayout: React.FC = () => {
                 {isMobile ? (
                 <DrawerProvider value={{
                     leftDrawerOpen: mobileLeftDrawerOpen,
-                    rightDrawerOpen: isRightSidebarOpen,
+                    rightDrawerOpen: false,
                     toggleLeftDrawer: () => {
-                        if (isRightSidebarOpen) {
-                            setRightSidebarOpen(false);
-                        }
                         setMobileLeftDrawerOpen(!mobileLeftDrawerOpen);
                     },
-                    toggleRightDrawer: () => {
-                        if (mobileLeftDrawerOpen) {
-                            setMobileLeftDrawerOpen(false);
-                        }
-                        setRightSidebarOpen(!isRightSidebarOpen);
-                    },
+                    toggleRightDrawer: () => {},
                     leftDrawerX,
                     rightDrawerX,
                     leftDrawerWidth,
@@ -594,14 +582,7 @@ export const MainLayout: React.FC = () => {
                             }
                             setMobileLeftDrawerOpen(!mobileLeftDrawerOpen);
                         }}
-                        onToggleRightDrawer={() => {
-                            if (mobileLeftDrawerOpen) {
-                                setMobileLeftDrawerOpen(false);
-                            }
-                            setRightSidebarOpen(!isRightSidebarOpen);
-                        }}
                         leftDrawerOpen={mobileLeftDrawerOpen}
-                        rightDrawerOpen={isRightSidebarOpen}
                     />}
                     
                     {/* Backdrop */}
@@ -609,13 +590,12 @@ export const MainLayout: React.FC = () => {
                         type="button"
                         initial={false}
                         animate={{
-                            opacity: mobileLeftDrawerOpen || isRightSidebarOpen ? 1 : 0,
-                            pointerEvents: mobileLeftDrawerOpen || isRightSidebarOpen ? 'auto' : 'none',
+                            opacity: mobileLeftDrawerOpen ? 1 : 0,
+                            pointerEvents: mobileLeftDrawerOpen ? 'auto' : 'none',
                         }}
                         className="fixed inset-0 z-40 bg-black/50 cursor-default"
                         onClick={() => {
                             setMobileLeftDrawerOpen(false);
-                            setRightSidebarOpen(false);
                         }}
                         aria-label="Close drawer"
                     />
@@ -678,52 +658,6 @@ export const MainLayout: React.FC = () => {
                                     <span className="typography-ui-label">Settings</span>
                                 </button>
                             </div>
-                        </div>
-                    </motion.aside>
-                    
-                    {/* Right drawer (Git) */}
-                    <motion.aside
-                        drag="x"
-                        dragElastic={0.08}
-                        dragMomentum={false}
-                        dragConstraints={{ left: 0, right: rightDrawerWidth.current || window.innerWidth * 0.85 }}
-                        style={{
-                            width: `${MOBILE_DRAWER_WIDTH_PERCENT}%`,
-                            x: rightDrawerX,
-                        }}
-                        onDragEnd={(_, info) => {
-                            const drawerWidthPx = rightDrawerWidth.current || window.innerWidth * 0.85;
-                            const threshold = drawerWidthPx * 0.3;
-                            const velocityThreshold = 500;
-                            const currentX = rightDrawerX.get();
-                            
-                            const shouldClose = info.offset.x > threshold || info.velocity.x > velocityThreshold;
-                            const shouldOpen = info.offset.x < -threshold || info.velocity.x < -velocityThreshold;
-                            
-                            if (shouldClose) {
-                                rightDrawerX.set(drawerWidthPx);
-                                setRightSidebarOpen(false);
-                            } else if (shouldOpen) {
-                                rightDrawerX.set(0);
-                                setRightSidebarOpen(true);
-                            } else {
-                                if (currentX < drawerWidthPx / 2) {
-                                    rightDrawerX.set(0);
-                                } else {
-                                    rightDrawerX.set(drawerWidthPx);
-                                }
-                            }
-                        }}
-                        className={cn(
-                            'fixed right-0 top-0 z-50 h-full bg-transparent',
-                            'cursor-grab active:cursor-grabbing'
-                        )}
-                        aria-hidden={!isRightSidebarOpen}
-                    >
-                        <div className="h-full overflow-hidden flex flex-col bg-background shadow-xl drawer-safe-area">
-                            <ErrorBoundary>
-                                <GitView mode="sidebar" />
-                            </ErrorBoundary>
                         </div>
                     </motion.aside>
                     
@@ -797,9 +731,6 @@ export const MainLayout: React.FC = () => {
                                             <ErrorBoundary><RightSidebarTabs /></ErrorBoundary>
                                         </RightSidebar>
                                     </div>
-                                    <BottomTerminalDock isOpen={isBottomTerminalOpen} isMobile={isMobile}>
-                                        <ErrorBoundary><TerminalView /></ErrorBoundary>
-                                    </BottomTerminalDock>
                                 </div>
                             </div>
                         </div>

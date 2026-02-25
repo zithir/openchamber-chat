@@ -31,11 +31,17 @@ export function useGitPolling() {
             return;
         }
 
-        setActiveDirectory(effectiveDirectory);
+        const directory = effectiveDirectory;
 
-        fetchAll(effectiveDirectory, git);
+        const fetchAndPoll = async () => {
+            setActiveDirectory(directory);
+            await fetchAll(directory, git);
+            startPolling(git);
+        };
 
-        startPolling(git);
+        fetchAndPoll().catch((error) => {
+            console.warn('Git polling initialization failed:', error);
+        });
 
         return () => {
             stopPolling();

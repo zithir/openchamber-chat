@@ -19,7 +19,6 @@ import {
   RiCommandLine,
   RiCloudLine,
   RiFoldersLine,
-  RiGitBranchLine,
 
   RiMicLine,
   RiNotification3Line,
@@ -45,7 +44,6 @@ import { ProvidersSidebar } from '@/components/sections/providers/ProvidersSideb
 import { ProvidersPage } from '@/components/sections/providers/ProvidersPage';
 import { UsageSidebar } from '@/components/sections/usage/UsageSidebar';
 import { UsagePage } from '@/components/sections/usage/UsagePage';
-import { GitPage } from '@/components/sections/git-identities/GitPage';
 import type { OpenChamberSection } from '@/components/sections/openchamber/types';
 import { OpenChamberPage } from '@/components/sections/openchamber/OpenChamberPage';
 import { AboutSettings } from '@/components/sections/openchamber/AboutSettings';
@@ -83,7 +81,6 @@ const pageOrder: SettingsPageSlug[] = [
   'notifications',
   'sessions',
   'shortcuts',
-  'git',
   'projects',
   'agents',
   'commands',
@@ -136,9 +133,6 @@ function getSettingsNavIcon(slug: SettingsPageSlug): React.ComponentType<{ class
       return RiBookOpenLine;
     case 'skills.catalog':
       return RiBookLine;
-
-    case 'git':
-      return RiGitBranchLine;
 
     case 'usage':
       return RiBarChart2Line;
@@ -258,7 +252,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
       .filter((page) => page.slug !== 'home')
       .filter((page) => isPageAvailable(page, runtimeCtx))
       .filter((page) => !(runtimeCtx.isVSCode && page.slug === 'projects'))
-      .filter((page) => !(isMobile && page.slug === 'shortcuts'));
+      .filter((page) => !(isMobile && page.slug === 'shortcuts'))
+      .filter((page) => page.slug !== 'git');
   }, [runtimeCtx, isMobile]);
 
   const sortedFilteredPages = React.useMemo(() => {
@@ -421,8 +416,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onClose, forceMobile
         return <ProvidersPage />;
       case 'usage':
         return <UsagePage />;
-      case 'git':
-        return <GitPage />;
       case 'appearance':
       case 'chat':
       case 'shortcuts':

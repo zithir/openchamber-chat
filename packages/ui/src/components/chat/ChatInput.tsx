@@ -30,7 +30,6 @@ import { parseAgentMentions } from '@/lib/messages/agentMentions';
 import { StatusRow } from './StatusRow';
 import { MobileAgentButton } from './MobileAgentButton';
 import { MobileModelButton } from './MobileModelButton';
-import { MobileSessionStatusBar } from './MobileSessionStatusBar';
 import { useAssistantStatus } from '@/hooks/useAssistantStatus';
 import { useCurrentSessionActivity } from '@/hooks/useSessionActivity';
 import { toast } from '@/components/ui';
@@ -2318,9 +2317,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onOpenSettings, scrollToBo
                             </>
                         )}
                     </div>
-
-                    {/* Mobile Session Status Bar - above input */}
-                    {isMobile && <MobileSessionStatusBar cornerRadius={cornerRadius} />}
                 </div>
             </div>
         </form>
