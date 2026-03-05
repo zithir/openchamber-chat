@@ -107,10 +107,191 @@ export interface BridgeContext {
 
 const SETTINGS_KEY = 'openchamber.settings';
 const CLIENT_RELOAD_DELAY_MS = 800;
+const MAX_FILE_ATTACH_SIZE_BYTES = 10 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 const gpgconfCandidates = ['gpgconf', '/opt/homebrew/bin/gpgconf', '/usr/local/bin/gpgconf'];
 
 const OPENCHAMBER_SHARED_SETTINGS_PATH = path.join(os.homedir(), '.config', 'openchamber', 'settings.json');
+
+const guessMimeTypeFromExtension = (ext: string) => {
+  switch (ext) {
+    case '.png':
+    case '.jpg':
+    case '.jpeg':
+    case '.gif':
+    case '.bmp':
+    case '.webp':
+      return `image/${ext.replace('.', '')}`;
+    case '.pdf':
+      return 'application/pdf';
+    case '.txt':
+    case '.log':
+      return 'text/plain';
+    case '.json':
+      return 'application/json';
+    case '.md':
+    case '.markdown':
+      return 'text/markdown';
+    default:
+      return 'application/octet-stream';
+  }
+};
+
+const readUriAsAttachment = async (
+  uri: vscode.Uri,
+  fallbackName?: string,
+): Promise<
+  | { file: { name: string; mimeType: string; size: number; dataUrl: string } }
+  | { skipped: { name: string; reason: string } }
+> => {
+  const name = path.basename(uri.fsPath || uri.path || fallbackName || 'file');
+
+  try {
+    const stat = await vscode.workspace.fs.stat(uri);
+    if ((stat.type & vscode.FileType.Directory) !== 0) {
+      return { skipped: { name, reason: 'Folders are not supported' } };
+    }
+
+    const size = stat.size ?? 0;
+    if (size > MAX_FILE_ATTACH_SIZE_BYTES) {
+      return { skipped: { name, reason: 'File exceeds 10MB limit' } };
+    }
+
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    const ext = path.extname(name).toLowerCase();
+    const mimeType = guessMimeTypeFromExtension(ext);
+    const base64 = Buffer.from(bytes).toString('base64');
+    const dataUrl = `data:${mimeType};base64,${base64}`;
+
+    return { file: { name, mimeType, size, dataUrl } };
+  } catch (error) {
+    return { skipped: { name, reason: error instanceof Error ? error.message : 'Failed to read file' } };
+  }
+};
+
+type ParsedDiffHunk = {
+  newStart: number;
+  oldLines: string[];
+  newLines: string[];
+};
+
+const VIRTUAL_DIFF_SCHEME = 'openchamber-diff';
+const virtualDiffContents = new Map<string, string>();
+let virtualDiffCounter = 0;
+let virtualDiffProviderDisposable: vscode.Disposable | null = null;
+
+const ensureVirtualDiffProviderRegistered = (ctx?: BridgeContext): void => {
+  if (virtualDiffProviderDisposable) {
+    return;
+  }
+
+  virtualDiffProviderDisposable = vscode.workspace.registerTextDocumentContentProvider(
+    VIRTUAL_DIFF_SCHEME,
+    {
+      provideTextDocumentContent: (uri: vscode.Uri) => {
+        const key = new URLSearchParams(uri.query).get('key') || '';
+        return virtualDiffContents.get(key) ?? '';
+      },
+    },
+  );
+
+  if (ctx?.context) {
+    ctx.context.subscriptions.push(virtualDiffProviderDisposable);
+  }
+};
+
+const createVirtualOriginalDiffUri = (modifiedPath: string, content: string): vscode.Uri => {
+  const key = `${Date.now()}-${++virtualDiffCounter}`;
+  virtualDiffContents.set(key, content);
+
+  if (virtualDiffContents.size > 100) {
+    const firstKey = virtualDiffContents.keys().next().value;
+    if (typeof firstKey === 'string') {
+      virtualDiffContents.delete(firstKey);
+    }
+  }
+
+  const fileName = path.basename(modifiedPath) || 'file';
+  return vscode.Uri.from({
+    scheme: VIRTUAL_DIFF_SCHEME,
+    path: `/${fileName} (before)`,
+    query: `key=${encodeURIComponent(key)}`,
+  });
+};
+
+const parseUnifiedDiffHunks = (patch: string): ParsedDiffHunk[] => {
+  if (typeof patch !== 'string' || patch.trim().length === 0) {
+    return [];
+  }
+
+  const lines = patch.split('\n');
+  const hunks: ParsedDiffHunk[] = [];
+  let current: ParsedDiffHunk | null = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\r$/, '');
+    const headerMatch = line.match(/^@@\s+-\d+(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@/);
+    if (headerMatch) {
+      if (current) {
+        hunks.push(current);
+      }
+      const newStart = Number.parseInt(headerMatch[1] ?? '', 10);
+      current = {
+        newStart: Number.isFinite(newStart) ? Math.max(1, newStart) : 1,
+        oldLines: [],
+        newLines: [],
+      };
+      continue;
+    }
+
+    if (!current) {
+      continue;
+    }
+
+    if (line.startsWith(' ')) {
+      const text = line.slice(1);
+      current.oldLines.push(text);
+      current.newLines.push(text);
+      continue;
+    }
+
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      current.newLines.push(line.slice(1));
+      continue;
+    }
+
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      current.oldLines.push(line.slice(1));
+      continue;
+    }
+  }
+
+  if (current) {
+    hunks.push(current);
+  }
+
+  return hunks;
+};
+
+const reconstructOriginalContentFromPatch = (modifiedContent: string, patch: string): string | null => {
+  const hunks = parseUnifiedDiffHunks(patch);
+  if (hunks.length === 0) {
+    return null;
+  }
+
+  const lines = modifiedContent.split('\n');
+  for (let index = hunks.length - 1; index >= 0; index -= 1) {
+    const hunk = hunks[index];
+    if (!hunk) {
+      continue;
+    }
+    const startIndex = Math.max(0, hunk.newStart - 1);
+    const replaceCount = hunk.newLines.length;
+    lines.splice(startIndex, replaceCount, ...hunk.oldLines);
+  }
+
+  return lines.join('\n');
+};
 
 const isPathInside = (candidatePath: string, parentPath: string): boolean => {
   const normalizedCandidate = path.resolve(candidatePath);
@@ -1660,7 +1841,6 @@ export async function handleBridgeMessage(message: BridgeRequest, ctx?: BridgeCo
       }
 
       case 'api:files/pick': {
-        const MAX_SIZE = 10 * 1024 * 1024;
         const allowMany = (payload as { allowMany?: boolean })?.allowMany !== false;
         const defaultUri = vscode.workspace.workspaceFolders?.[0]?.uri;
 
@@ -1679,54 +1859,99 @@ export async function handleBridgeMessage(message: BridgeRequest, ctx?: BridgeCo
         const files: Array<{ name: string; mimeType: string; size: number; dataUrl: string }> = [];
         const skipped: Array<{ name: string; reason: string }> = [];
 
-        const guessMime = (ext: string) => {
-          switch (ext) {
-            case '.png':
-            case '.jpg':
-            case '.jpeg':
-            case '.gif':
-            case '.bmp':
-            case '.webp':
-              return `image/${ext.replace('.', '')}`;
-            case '.pdf':
-              return 'application/pdf';
-            case '.txt':
-            case '.log':
-              return 'text/plain';
-            case '.json':
-              return 'application/json';
-            case '.md':
-            case '.markdown':
-              return 'text/markdown';
-            default:
-              return 'application/octet-stream';
-          }
-        };
-
         for (const uri of picks) {
-          try {
-            const stat = await vscode.workspace.fs.stat(uri);
-            const size = stat.size ?? 0;
-            const name = path.basename(uri.fsPath);
-
-            if (size > MAX_SIZE) {
-              skipped.push({ name, reason: 'File exceeds 10MB limit' });
-              continue;
-            }
-
-            const bytes = await vscode.workspace.fs.readFile(uri);
-            const ext = path.extname(name).toLowerCase();
-            const mimeType = guessMime(ext);
-            const base64 = Buffer.from(bytes).toString('base64');
-            const dataUrl = `data:${mimeType};base64,${base64}`;
-            files.push({ name, mimeType, size, dataUrl });
-          } catch (error) {
-            const name = path.basename(uri.fsPath);
-            skipped.push({ name, reason: error instanceof Error ? error.message : 'Failed to read file' });
+          const result = await readUriAsAttachment(uri);
+          if ('file' in result) {
+            files.push(result.file);
+          } else {
+            skipped.push(result.skipped);
           }
         }
 
         return { id, type, success: true, data: { files, skipped } };
+      }
+
+      case 'api:files/drop': {
+        const uris = Array.isArray((payload as { uris?: unknown[] })?.uris)
+          ? (payload as { uris: unknown[] }).uris.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+          : [];
+
+        if (uris.length === 0) {
+          return { id, type, success: true, data: { files: [], skipped: [] } };
+        }
+
+        const files: Array<{ name: string; mimeType: string; size: number; dataUrl: string }> = [];
+        const skipped: Array<{ name: string; reason: string }> = [];
+
+        const dedupedUris = Array.from(new Set(uris.map((value) => value.trim())));
+
+        for (const rawUri of dedupedUris) {
+          let uri: vscode.Uri;
+          try {
+            uri = vscode.Uri.parse(rawUri, true);
+          } catch (error) {
+            skipped.push({
+              name: rawUri,
+              reason: error instanceof Error ? error.message : 'Invalid URI',
+            });
+            continue;
+          }
+
+          if (uri.scheme !== 'file') {
+            skipped.push({
+              name: rawUri,
+              reason: `Unsupported URI scheme: ${uri.scheme}`,
+            });
+            continue;
+          }
+
+          const name = path.basename(uri.fsPath || uri.path || rawUri);
+
+          const result = await readUriAsAttachment(uri, name);
+          if ('file' in result) {
+            files.push(result.file);
+          } else {
+            skipped.push(result.skipped);
+          }
+        }
+
+        return { id, type, success: true, data: { files, skipped } };
+      }
+
+      case 'api:files/save-image': {
+        const rawFileName = (payload as { fileName?: unknown })?.fileName;
+        const rawDataUrl = (payload as { dataUrl?: unknown })?.dataUrl;
+        const dataUrl = typeof rawDataUrl === 'string' ? rawDataUrl.trim() : '';
+        if (!dataUrl.startsWith('data:image/')) {
+          return { id, type, success: false, error: 'Invalid image payload' };
+        }
+
+        const defaultFileName = typeof rawFileName === 'string' && rawFileName.trim().length > 0
+          ? rawFileName.trim()
+          : `message-${Date.now()}.png`;
+
+        const saveUri = await vscode.window.showSaveDialog({
+          saveLabel: 'Save image',
+          defaultUri: vscode.workspace.workspaceFolders?.[0]
+            ? vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultFileName)
+            : undefined,
+          filters: { Images: ['png'] },
+        });
+
+        if (!saveUri) {
+          return { id, type, success: true, data: { saved: false, canceled: true } };
+        }
+
+        const commaIndex = dataUrl.indexOf(',');
+        if (commaIndex === -1) {
+          return { id, type, success: false, error: 'Invalid image data URL' };
+        }
+
+        const base64 = dataUrl.slice(commaIndex + 1);
+        const bytes = Buffer.from(base64, 'base64');
+        await vscode.workspace.fs.writeFile(saveUri, bytes);
+
+        return { id, type, success: true, data: { saved: true, path: saveUri.fsPath || saveUri.toString() } };
       }
 
       case 'api:config/settings:get': {
@@ -2682,16 +2907,44 @@ export async function handleBridgeMessage(message: BridgeRequest, ctx?: BridgeCo
       }
 
       case 'editor:openDiff': {
-        const { original, modified, label } = payload as { original: string; modified: string; label?: string };
+        const { original, modified, label, line, patch } = payload as {
+          original: string;
+          modified: string;
+          label?: string;
+          line?: number;
+          patch?: string;
+        };
         try {
-          // If the paths are just content, we need to create virtual documents or temp files.
-          // However, 'editor:openDiff' usually implies comparing two URIs.
-          // If the payload contains file paths:
-          const originalUri = vscode.Uri.file(original);
           const modifiedUri = vscode.Uri.file(modified);
-          const title = label || `${path.basename(original)} ↔ ${path.basename(modified)}`;
-          
+          const modifiedDoc = await vscode.workspace.openTextDocument(modifiedUri);
+          let originalUri = original ? vscode.Uri.file(original) : modifiedUri;
+
+          if (typeof patch === 'string' && patch.trim().length > 0) {
+            const originalContent = reconstructOriginalContentFromPatch(modifiedDoc.getText(), patch);
+            if (typeof originalContent === 'string') {
+              ensureVirtualDiffProviderRegistered(ctx);
+              originalUri = createVirtualOriginalDiffUri(modified, originalContent);
+            }
+          }
+
+          const leftLabel = original ? path.basename(original) : `${path.basename(modified)} (before)`;
+          const title = label || `${leftLabel} ↔ ${path.basename(modified)}`;
+
           await vscode.commands.executeCommand('vscode.diff', originalUri, modifiedUri, title);
+
+          if (typeof line === 'number' && Number.isFinite(line)) {
+            const targetLine = Math.max(0, Math.trunc(line) - 1);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            const targetEditor = vscode.window.visibleTextEditors.find(
+              (editor) => editor.document.uri.toString() === modifiedUri.toString(),
+            );
+            if (targetEditor) {
+              const target = new vscode.Position(targetLine, 0);
+              targetEditor.selection = new vscode.Selection(target, target);
+              targetEditor.revealRange(new vscode.Range(target, target), vscode.TextEditorRevealType.InCenter);
+            }
+          }
+
           return { id, type, success: true };
         } catch (error) {
            const errorMessage = error instanceof Error ? error.message : String(error);

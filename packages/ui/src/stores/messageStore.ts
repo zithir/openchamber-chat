@@ -499,18 +499,19 @@ export const useMessageStore = create<MessageStore>()(
                                 : Math.max(baseLimit, userExpandedLimit ?? 0);
 
                         // Don't pass Infinity to API - use undefined for "fetch all".
-                        // For finite loads, overfetch by 1 so hasMoreAbove is accurate.
-                        const fetchLimit = noLimit ? undefined : targetLimit + 1;
+                        // Use targetLimit directly and infer "has more" when payload fills the window,
+                        // matching OpenCode behavior and avoiding hidden "load older" on exact-limit responses.
+                        const fetchLimit = noLimit ? undefined : targetLimit;
                         const allMessages = await executeWithSessionDirectory(sessionId, () => opencodeClient.getSessionMessages(sessionId, fetchLimit));
 
                         // Filter out reverted messages first
                         const revertMessageId = getSessionRevertMessageId(sessionId);
                         const messagesWithoutReverted = filterRevertedMessages(allMessages, revertMessageId);
 
-                        // Accurate older-history detection for finite loads.
-                        // If server returns > targetLimit, there are older messages above current window.
+                        // If server fills the requested window, assume there may be more above.
+                        // This is intentionally optimistic and corrected on subsequent load-more calls.
                         const hasMoreAbove = typeof fetchLimit === 'number'
-                            ? messagesWithoutReverted.length > targetLimit
+                            ? messagesWithoutReverted.length >= targetLimit
                             : false;
 
                         const watermark = get().sessionMemoryState.get(sessionId)?.trimmedHeadMaxId;
@@ -688,9 +689,21 @@ export const useMessageStore = create<MessageStore>()(
                     await executeWithSessionDirectory(sessionId, async () => {
                         try {
                             const trimmedContent = content.trimStart();
+                            const firstTokenLooksLikeAbsolutePath = (() => {
+                                if (!trimmedContent.startsWith('/')) return false;
+                                const firstWhitespaceIndex = trimmedContent.search(/\s/);
+                                const firstToken = firstWhitespaceIndex === -1
+                                    ? trimmedContent
+                                    : trimmedContent.slice(0, firstWhitespaceIndex);
+                                if (firstToken.length <= 1) return false;
+                                const tokenWithoutLeadingSlash = firstToken.slice(1);
+                                if (!tokenWithoutLeadingSlash.includes('/')) return false;
+                                return true;
+                            })();
                             const commandPayload = (() => {
                                 if (inputMode === 'shell') return null;
                                 if (!trimmedContent.startsWith("/")) return null;
+                                if (firstTokenLooksLikeAbsolutePath) return null;
                                 const firstLineEnd = trimmedContent.indexOf("\n");
                                 const firstLine = firstLineEnd === -1 ? trimmedContent : trimmedContent.slice(0, firstLineEnd);
                                 const [commandToken, ...firstLineArgs] = firstLine.split(" ");
@@ -715,6 +728,7 @@ export const useMessageStore = create<MessageStore>()(
                             })();
                             const slashShellPayload = (() => {
                                 if (!trimmedContent.startsWith("/")) return null;
+                                if (firstTokenLooksLikeAbsolutePath) return null;
                                 const firstLineEnd = trimmedContent.indexOf("\n");
                                 const firstLine = firstLineEnd === -1 ? trimmedContent : trimmedContent.slice(0, firstLineEnd);
                                 const [commandToken, ...firstLineArgs] = firstLine.split(" ");
@@ -2626,7 +2640,7 @@ export const useMessageStore = create<MessageStore>()(
                     });
 
                     try {
-                        const fetchLimit = desiredLimit + 1;
+                        const fetchLimit = desiredLimit;
                         const allMessages = await executeWithSessionDirectory(
                             sessionId,
                             () => opencodeClient.getSessionMessages(sessionId, fetchLimit)
@@ -2634,7 +2648,7 @@ export const useMessageStore = create<MessageStore>()(
 
                         if (direction === "up" && currentMessages.length > 0) {
                             const dedupedMessages = dedupeMessagesById(allMessages);
-                            const hasPotentialMore = allMessages.length >= fetchLimit;
+                            const hasPotentialMore = allMessages.length >= desiredLimit;
                             const firstCurrentMessage = currentMessages[0];
                             const indexInAll = dedupedMessages.findIndex((message) => message.info.id === firstCurrentMessage.info.id);
 

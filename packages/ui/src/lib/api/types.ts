@@ -489,6 +489,12 @@ export interface ProjectEntry {
   path: string;
   label?: string;
   icon?: string | null;
+  iconImage?: {
+    mime: string;
+    updatedAt: number;
+    source: 'custom' | 'auto';
+  } | null;
+  iconBackground?: string | null;
   color?: string | null;
   addedAt?: number;
   lastOpenedAt?: number;
@@ -518,7 +524,7 @@ export interface SettingsPayload {
   autoDeleteAfterDays?: number;
   queueModeEnabled?: boolean;
   gitmojiEnabled?: boolean;
-  toolCallExpansion?: 'collapsed' | 'activity' | 'detailed';
+  toolCallExpansion?: 'collapsed' | 'activity' | 'detailed' | 'changes';
   fontSize?: number;
   terminalFontSize?: number;
   padding?: number;
@@ -531,6 +537,7 @@ export interface SettingsPayload {
   openInAppId?: string;
   gitProviderId?: string;
   gitModelId?: string;
+  pwaAppName?: string;
 
   [key: string]: unknown;
 }
@@ -591,7 +598,12 @@ export interface ToolsAPI {
 
 export interface EditorAPI {
   openFile(path: string, line?: number, column?: number): Promise<void>;
-  openDiff(original: string, modified: string, label?: string): Promise<void>;
+  openDiff(
+    original: string,
+    modified: string,
+    label?: string,
+    options?: { line?: number; patch?: string },
+  ): Promise<void>;
 }
 
 export interface VSCodeAPI {
