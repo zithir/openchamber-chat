@@ -3,6 +3,8 @@
 ## Core purpose
 OpenChamber provides UI runtimes (web/desktop/VS Code) for interacting with an OpenCode server (local auto-start or remote URL). UI uses HTTP + SSE via `@opencode-ai/sdk`.
 
+Importat: This is a fork of the original openchamber project. This fork aims to repurpose the Openchamber web UI to provide better UX for casual chat experience optimized for mobile screens. It hides Git related features, worktrees and terminal. Main focus is the web interface, Desktop and VS Code extension can be kept non-functional if there would be an issue. When making any changes, they should be done in such a way to minimize potential surface for merge conflicts when syncing with official repo.
+
 ## Runtime architecture (IMPORTANT)
 - `Desktop` is a thin Tauri shell that starts the web server sidecar and loads the web UI from `http://127.0.0.1:<port>`.
 - All backend logic lives in `packages/web/server/*` (and `packages/vscode/*` for the VS Code runtime). Desktop Rust is not a feature backend.
