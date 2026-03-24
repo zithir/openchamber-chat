@@ -13,7 +13,6 @@ import { OpenCodeStatusDialog } from '../ui/OpenCodeStatusDialog';
 import { SessionSidebar } from '@/components/session/SessionSidebar';
 import { SessionDialogs } from '@/components/session/SessionDialogs';
 import { DiffWorkerProvider } from '@/contexts/DiffWorkerProvider';
-import { MultiRunLauncher } from '@/components/multirun';
 import { DrawerProvider } from '@/contexts/DrawerContext';
 
 import { useUIStore } from '@/stores/useUIStore';
@@ -21,11 +20,16 @@ import { useUpdateStore } from '@/stores/useUpdateStore';
 import { useDeviceInfo } from '@/lib/device';
 import { useEffectiveDirectory } from '@/hooks/useEffectiveDirectory';
 import { cn } from '@/lib/utils';
+import { isDesktopShell } from '@/lib/desktop';
 
 import { ChatView, PlanView, GitView, DiffView, FilesView, SettingsView, SettingsWindow } from '@/components/views';
 
 // Mobile drawer width as screen percentage
 const MOBILE_DRAWER_WIDTH_PERCENT = 85;
+const DESKTOP_SIDEBAR_MIN_WIDTH = 250;
+const DESKTOP_SIDEBAR_MAX_WIDTH = 500;
+const DESKTOP_RIGHT_SIDEBAR_MIN_WIDTH = 400;
+const DESKTOP_RIGHT_SIDEBAR_MAX_WIDTH = 860;
 
 const normalizeDirectoryKey = (value: string): string => {
     if (!value) return '';
@@ -49,13 +53,10 @@ const normalizeDirectoryKey = (value: string): string => {
 export const MainLayout: React.FC = () => {
     const RIGHT_SIDEBAR_AUTO_CLOSE_WIDTH = 1140;
     const RIGHT_SIDEBAR_AUTO_OPEN_WIDTH = 1220;
-    const BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT = 640;
-    const BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT = 700;
     const {
         isSidebarOpen,
         isRightSidebarOpen,
         setRightSidebarOpen,
-        setBottomTerminalOpen,
         activeMainTab,
         setIsMobile,
         isSessionSwitcherOpen,
@@ -67,6 +68,10 @@ export const MainLayout: React.FC = () => {
     } = useUIStore();
 
     const { isMobile } = useDeviceInfo();
+    const isDesktopShellRuntime = React.useMemo(() => isDesktopShell(), []);
+    const sidebarWidth = useUIStore((state) => state.sidebarWidth);
+    const rightSidebarWidth = useUIStore((state) => state.rightSidebarWidth);
+    const [desktopRightSidebarActionsHost, setDesktopRightSidebarActionsHost] = React.useState<HTMLDivElement | null>(null);
     const effectiveDirectory = useEffectiveDirectory() ?? '';
     const directoryKey = React.useMemo(() => normalizeDirectoryKey(effectiveDirectory), [effectiveDirectory]);
     const isContextPanelOpen = useUIStore((state) => {
@@ -74,30 +79,23 @@ export const MainLayout: React.FC = () => {
             return false;
         }
         const panelState = state.contextPanelByDirectory[directoryKey];
-        return Boolean(panelState?.isOpen && panelState?.mode);
+        return Boolean(panelState?.isOpen && panelState?.tabs.length > 0);
     });
     const setSidebarOpen = useUIStore((state) => state.setSidebarOpen);
     const rightSidebarAutoClosedRef = React.useRef(false);
-    const bottomTerminalAutoClosedRef = React.useRef(false);
     const leftSidebarAutoClosedByContextRef = React.useRef(false);
 
     // Mobile drawer state
     const [mobileLeftDrawerOpen, setMobileLeftDrawerOpen] = React.useState(false);
-    const mobileRightDrawerOpenRef = React.useRef(false);
 
     // Left drawer motion value
     const leftDrawerX = useMotionValue(0);
     const leftDrawerWidth = useRef(0);
 
-    // Right drawer motion value
-    const rightDrawerX = useMotionValue(0);
-    const rightDrawerWidth = useRef(0);
-
     // Compute drawer width
     useEffect(() => {
         if (isMobile) {
             leftDrawerWidth.current = window.innerWidth * (MOBILE_DRAWER_WIDTH_PERCENT / 100);
-            rightDrawerWidth.current = window.innerWidth * (MOBILE_DRAWER_WIDTH_PERCENT / 100);
         }
     }, [isMobile]);
 
@@ -113,32 +111,12 @@ export const MainLayout: React.FC = () => {
         });
     }, [mobileLeftDrawerOpen, isMobile, leftDrawerX]);
 
-    // Sync right drawer state and motion value
-    useEffect(() => {
-        if (!isMobile) return;
-        mobileRightDrawerOpenRef.current = isRightSidebarOpen;
-        const targetX = isRightSidebarOpen ? 0 : rightDrawerWidth.current;
-        animate(rightDrawerX, targetX, {
-            type: "spring",
-            stiffness: 400,
-            damping: 35,
-            mass: 0.8
-        });
-    }, [isMobile, isRightSidebarOpen, rightDrawerX]);
-
     // Sync session switcher state to left drawer (one-way)
     useEffect(() => {
         if (isMobile) {
             setMobileLeftDrawerOpen(isSessionSwitcherOpen);
         }
     }, [isSessionSwitcherOpen, isMobile]);
-
-    // Sync right drawer and git sidebar state
-    useEffect(() => {
-        if (isMobile) {
-            mobileRightDrawerOpenRef.current = isRightSidebarOpen;
-        }
-    }, [isRightSidebarOpen, isMobile]);
 
     // Trigger update check 3 seconds after mount (for both mobile and desktop)
     const checkForUpdates = useUpdateStore((state) => state.checkForUpdates);
@@ -209,7 +187,6 @@ export const MainLayout: React.FC = () => {
         const handleResponsivePanels = () => {
             const state = useUIStore.getState();
             const width = window.innerWidth;
-            const height = window.innerHeight;
 
             const shouldCloseRightSidebar = width < RIGHT_SIDEBAR_AUTO_CLOSE_WIDTH;
             const canAutoOpenRightSidebar = width >= RIGHT_SIDEBAR_AUTO_OPEN_WIDTH;
@@ -222,21 +199,6 @@ export const MainLayout: React.FC = () => {
             } else if (canAutoOpenRightSidebar && rightSidebarAutoClosedRef.current) {
                 setRightSidebarOpen(true);
                 rightSidebarAutoClosedRef.current = false;
-            }
-
-            const shouldCloseBottomTerminal =
-                height < BOTTOM_TERMINAL_AUTO_CLOSE_HEIGHT;
-            const canAutoOpenBottomTerminal =
-                height >= BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT;
-
-            if (shouldCloseBottomTerminal) {
-                if (state.isBottomTerminalOpen) {
-                    setBottomTerminalOpen(false);
-                    bottomTerminalAutoClosedRef.current = true;
-                }
-            } else if (canAutoOpenBottomTerminal && bottomTerminalAutoClosedRef.current) {
-                setBottomTerminalOpen(true);
-                bottomTerminalAutoClosedRef.current = false;
             }
         };
 
@@ -259,7 +221,7 @@ export const MainLayout: React.FC = () => {
                 window.clearTimeout(timeoutId);
             }
         };
-    }, [setBottomTerminalOpen, setRightSidebarOpen]);
+    }, [setRightSidebarOpen]);
 
     React.useEffect(() => {
         if (typeof window === 'undefined') {
@@ -268,18 +230,11 @@ export const MainLayout: React.FC = () => {
 
         const unsubscribe = useUIStore.subscribe((state, prevState) => {
             const width = window.innerWidth;
-            const height = window.innerHeight;
 
             const rightCanAutoOpen = width >= RIGHT_SIDEBAR_AUTO_OPEN_WIDTH;
-            const bottomCanAutoOpen =
-                height >= BOTTOM_TERMINAL_AUTO_OPEN_HEIGHT;
 
             if (state.isRightSidebarOpen !== prevState.isRightSidebarOpen && rightCanAutoOpen) {
                 rightSidebarAutoClosedRef.current = false;
-            }
-
-            if (state.isBottomTerminalOpen !== prevState.isBottomTerminalOpen && bottomCanAutoOpen) {
-                bottomTerminalAutoClosedRef.current = false;
             }
         });
 
@@ -346,6 +301,10 @@ export const MainLayout: React.FC = () => {
             root.style.setProperty('--oc-keyboard-inset', '0px');
             setKeyboardOpen(false);
         };
+
+        // Batch visualViewport updates to once per animation frame to avoid
+        // layout thrashing during keyboard open/close animations.
+        let rafId = 0;
 
         const updateVisualViewport = () => {
             const viewport = window.visualViewport;
@@ -449,13 +408,21 @@ export const MainLayout: React.FC = () => {
             }
         };
 
+        const scheduleVisualViewportUpdate = () => {
+            if (rafId) return;
+            rafId = requestAnimationFrame(() => {
+                rafId = 0;
+                updateVisualViewport();
+            });
+        };
+
         updateVisualViewport();
 
         const viewport = window.visualViewport;
-        viewport?.addEventListener('resize', updateVisualViewport);
-        viewport?.addEventListener('scroll', updateVisualViewport);
-        window.addEventListener('resize', updateVisualViewport);
-        window.addEventListener('orientationchange', updateVisualViewport);
+        viewport?.addEventListener('resize', scheduleVisualViewportUpdate);
+        viewport?.addEventListener('scroll', scheduleVisualViewportUpdate);
+        window.addEventListener('resize', scheduleVisualViewportUpdate);
+        window.addEventListener('orientationchange', scheduleVisualViewportUpdate);
         const isTextInputTarget = (element: HTMLElement | null) => {
             if (!element) {
                 return false;
@@ -473,7 +440,7 @@ export const MainLayout: React.FC = () => {
             if (isTextInputTarget(target)) {
                 ignoreOpenUntilZero = false;
             }
-            updateVisualViewport();
+            scheduleVisualViewportUpdate();
         };
         document.addEventListener('focusin', handleFocusIn, true);
 
@@ -518,10 +485,11 @@ export const MainLayout: React.FC = () => {
         document.addEventListener('focusout', handleFocusOut, true);
 
         return () => {
-            viewport?.removeEventListener('resize', updateVisualViewport);
-            viewport?.removeEventListener('scroll', updateVisualViewport);
-            window.removeEventListener('resize', updateVisualViewport);
-            window.removeEventListener('orientationchange', updateVisualViewport);
+            if (rafId) cancelAnimationFrame(rafId);
+            viewport?.removeEventListener('resize', scheduleVisualViewportUpdate);
+            viewport?.removeEventListener('scroll', scheduleVisualViewportUpdate);
+            window.removeEventListener('resize', scheduleVisualViewportUpdate);
+            window.removeEventListener('orientationchange', scheduleVisualViewportUpdate);
             document.removeEventListener('focusin', handleFocusIn, true);
             document.removeEventListener('focusout', handleFocusOut, true);
             clearKeyboardAvoidTarget();
@@ -544,6 +512,14 @@ export const MainLayout: React.FC = () => {
     }, [activeMainTab]);
 
     const isChatActive = activeMainTab === 'chat';
+    const visibleSidebarWidth = React.useMemo(() => {
+        const rawWidth = sidebarWidth || 260;
+        return Math.min(DESKTOP_SIDEBAR_MAX_WIDTH, Math.max(DESKTOP_SIDEBAR_MIN_WIDTH, rawWidth));
+    }, [sidebarWidth]);
+    const visibleRightSidebarWidth = React.useMemo(() => {
+        const rawWidth = rightSidebarWidth || 420;
+        return Math.min(DESKTOP_RIGHT_SIDEBAR_MAX_WIDTH, Math.max(DESKTOP_RIGHT_SIDEBAR_MIN_WIDTH, rawWidth));
+    }, [rightSidebarWidth]);
 
     return (
         <DiffWorkerProvider>
@@ -551,7 +527,7 @@ export const MainLayout: React.FC = () => {
                 className={cn(
                     'main-content-safe-area h-[100dvh]',
                     isMobile ? 'flex flex-col' : 'flex',
-                    'bg-background'
+                    isDesktopShellRuntime ? 'bg-transparent' : 'bg-background'
                 )}
             >
                 <CommandPalette />
@@ -568,14 +544,14 @@ export const MainLayout: React.FC = () => {
                     },
                     toggleRightDrawer: () => {},
                     leftDrawerX,
-                    rightDrawerX,
+                    rightDrawerX: useMotionValue(0),
                     leftDrawerWidth,
-                    rightDrawerWidth,
+                    rightDrawerWidth: useRef(0),
                     setMobileLeftDrawerOpen,
                     setRightSidebarOpen,
                 }}>
                     {/* Mobile: header + drawer mode */}
-                    {!(isSettingsDialogOpen || isMultiRunLauncherOpen) && <Header 
+                    {!isSettingsDialogOpen && <Header 
                         onToggleLeftDrawer={() => {
                             if (isRightSidebarOpen) {
                                 setRightSidebarOpen(false);
@@ -593,7 +569,7 @@ export const MainLayout: React.FC = () => {
                             opacity: mobileLeftDrawerOpen ? 1 : 0,
                             pointerEvents: mobileLeftDrawerOpen ? 'auto' : 'none',
                         }}
-                        className="fixed inset-0 z-40 bg-black/50 cursor-default"
+                        className="fixed left-0 right-0 bottom-0 top-[var(--oc-header-height,56px)] z-40 bg-black/50 cursor-default"
                         onClick={() => {
                             setMobileLeftDrawerOpen(false);
                         }}
@@ -634,7 +610,7 @@ export const MainLayout: React.FC = () => {
                             }
                         }}
                         className={cn(
-                            'fixed left-0 top-0 z-50 h-full bg-transparent',
+                            'fixed left-0 top-[var(--oc-header-height,56px)] z-50 h-[calc(100%-var(--oc-header-height,56px))] bg-transparent',
                             'cursor-grab active:cursor-grabbing'
                         )}
                         aria-hidden={!mobileLeftDrawerOpen}
@@ -665,9 +641,8 @@ export const MainLayout: React.FC = () => {
                     <div
                         className={cn(
                             'flex flex-1 overflow-hidden relative',
-                            (isSettingsDialogOpen || isMultiRunLauncherOpen) && 'hidden'
+                            isSettingsDialogOpen && 'hidden'
                         )}
-                        style={{ paddingTop: 'var(--oc-header-height, 56px)' }}
                     >
                         <main className="w-full h-full overflow-hidden bg-background relative">
                             <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
@@ -681,72 +656,143 @@ export const MainLayout: React.FC = () => {
                         </main>
                     </div>
 
-                    {/* Mobile multi-run launcher: full screen */}
-                    {isMultiRunLauncherOpen && (
-                        <div className="absolute inset-0 z-10 bg-background header-safe-area">
-                            <ErrorBoundary>
-                                <MultiRunLauncher
-                                    initialPrompt={multiRunLauncherPrefillPrompt}
-                                    onCreated={() => setMultiRunLauncherOpen(false)}
-                                    onCancel={() => setMultiRunLauncherOpen(false)}
-                                />
-                            </ErrorBoundary>
-                        </div>
-                    )}
-
                     {/* Mobile settings: full screen */}
                     {isSettingsDialogOpen && (
-                        <div className="absolute inset-0 z-10 bg-background header-safe-area">
+                        <div
+                            className="absolute inset-0 z-10 bg-background"
+                            style={{ paddingTop: 'var(--oc-safe-area-top, 0px)' }}
+                        >
                             <ErrorBoundary><SettingsView onClose={() => setSettingsDialogOpen(false)} /></ErrorBoundary>
                         </div>
                     )}
                 </DrawerProvider>
             ) : (
                 <>
-                    {/* Desktop: Header always on top, then Sidebar + Content below */}
-                    <div className="flex flex-1 flex-col overflow-hidden relative">
-                        {/* Normal view: Header above Sidebar + content (like SettingsView) */}
-                        <div className={cn('absolute inset-0 flex flex-col', isMultiRunLauncherOpen && 'invisible')}>
-                            <Header />
-                            <div className="flex flex-1 overflow-hidden">
-                                <Sidebar isOpen={isSidebarOpen} isMobile={isMobile}>
-                                    <SessionSidebar hideProjectSelector />
-                                </Sidebar>
-                                <div className="flex flex-1 min-w-0 flex-col overflow-hidden">
-                                    <div className="flex flex-1 min-h-0 overflow-hidden">
-                                        <div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
-                                            <main className="flex-1 overflow-hidden bg-background relative">
-                                                <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
-                                                    <ErrorBoundary><ChatView /></ErrorBoundary>
+                    {/* Desktop: Sidebar is a left column; header belongs to content column */}
+                    <div className="flex flex-1 overflow-hidden relative">
+                        <div className={cn(
+                            'absolute inset-0 flex overflow-hidden',
+                            isDesktopShellRuntime
+                                ? 'bg-[color:var(--sidebar-overlay-strong)] backdrop-blur supports-[backdrop-filter]:bg-[color:var(--sidebar-overlay-soft)]'
+                                : 'bg-sidebar'
+                        )}>
+                            {isSidebarOpen ? (
+                                <>
+                                    <div
+                                        aria-hidden
+                                        className={cn(
+                                            'pointer-events-none absolute top-0 z-0',
+                                            isDesktopShellRuntime
+                                                ? 'bg-[color:var(--sidebar-overlay-strong)] backdrop-blur supports-[backdrop-filter]:bg-[color:var(--sidebar-overlay-soft)]'
+                                                : 'bg-sidebar'
+                                        )}
+                                        style={{
+                                            left: `${visibleSidebarWidth}px`,
+                                            width: 'var(--radius-md)',
+                                            height: 'var(--radius-md)',
+                                            WebkitMaskImage: 'radial-gradient(circle at 100% 100%, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                            maskImage: 'radial-gradient(circle at 100% 100%, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                        }}
+                                    />
+                                    <div
+                                        aria-hidden
+                                        className={cn(
+                                            'pointer-events-none absolute bottom-0 z-0',
+                                            isDesktopShellRuntime
+                                                ? 'bg-[color:var(--sidebar-overlay-strong)] backdrop-blur supports-[backdrop-filter]:bg-[color:var(--sidebar-overlay-soft)]'
+                                                : 'bg-sidebar'
+                                        )}
+                                        style={{
+                                            left: `${visibleSidebarWidth}px`,
+                                            width: 'var(--radius-md)',
+                                            height: 'var(--radius-md)',
+                                            WebkitMaskImage: 'radial-gradient(circle at 100% 0%, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                            maskImage: 'radial-gradient(circle at 100% 0%, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                        }}
+                                    />
+                                </>
+                            ) : null}
+                            {isRightSidebarOpen ? (
+                                <>
+                                    <div
+                                        aria-hidden
+                                        className={cn(
+                                            'pointer-events-none absolute top-0 z-0',
+                                            isDesktopShellRuntime
+                                                ? 'bg-[color:var(--sidebar-overlay-strong)] backdrop-blur supports-[backdrop-filter]:bg-[color:var(--sidebar-overlay-soft)]'
+                                                : 'bg-sidebar'
+                                        )}
+                                        style={{
+                                            right: `${visibleRightSidebarWidth}px`,
+                                            width: 'var(--radius-md)',
+                                            height: 'var(--radius-md)',
+                                            WebkitMaskImage: 'radial-gradient(circle at 0 100%, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                            maskImage: 'radial-gradient(circle at 0 100%, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                        }}
+                                    />
+                                    <div
+                                        aria-hidden
+                                        className={cn(
+                                            'pointer-events-none absolute bottom-0 z-0',
+                                            isDesktopShellRuntime
+                                                ? 'bg-[color:var(--sidebar-overlay-strong)] backdrop-blur supports-[backdrop-filter]:bg-[color:var(--sidebar-overlay-soft)]'
+                                                : 'bg-sidebar'
+                                        )}
+                                        style={{
+                                            right: `${visibleRightSidebarWidth}px`,
+                                            width: 'var(--radius-md)',
+                                            height: 'var(--radius-md)',
+                                            WebkitMaskImage: 'radial-gradient(circle at 0 0, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                            maskImage: 'radial-gradient(circle at 0 0, transparent calc(var(--radius-md) - 1px), black var(--radius-md))',
+                                        }}
+                                    />
+                                </>
+                            ) : null}
+                            <Sidebar
+                                isOpen={isSidebarOpen}
+                                isMobile={isMobile}
+                                className="border-0"
+                            >
+                                <SessionSidebar />
+                            </Sidebar>
+                            <div className={cn(
+                                'relative flex flex-1 min-w-0 flex-col overflow-hidden',
+                                isDesktopShellRuntime
+                                    ? 'bg-[color:var(--sidebar-overlay-strong)] backdrop-blur supports-[backdrop-filter]:bg-[color:var(--sidebar-overlay-soft)]'
+                                    : 'bg-sidebar',
+                                isSidebarOpen && 'border-l border-border/50 rounded-tl-md rounded-bl-md',
+                                isRightSidebarOpen && 'border-r border-border/50 rounded-tr-md rounded-br-md'
+                            )}>
+                                <Header desktopRightSidebarActionsHost={desktopRightSidebarActionsHost} />
+                                <div className={cn(
+                                    'flex flex-1 min-h-0 overflow-hidden',
+                                    isSidebarOpen || isChatActive ? '' : 'border-l border-border/50',
+                                    isRightSidebarOpen ? '' : 'border-r border-border/50'
+                                )}>
+                                    <div className="relative flex flex-1 min-h-0 min-w-0 overflow-hidden">
+                                        <main className="flex-1 overflow-hidden bg-background relative">
+                                            <div className={cn('absolute inset-0', !isChatActive && 'invisible')}>
+                                                <ErrorBoundary><ChatView /></ErrorBoundary>
+                                            </div>
+                                            {secondaryView && (
+                                                <div className="absolute inset-0">
+                                                    <ErrorBoundary>{secondaryView}</ErrorBoundary>
                                                 </div>
-                                                {secondaryView && (
-                                                    <div className="absolute inset-0">
-                                                        <ErrorBoundary>{secondaryView}</ErrorBoundary>
-                                                    </div>
-                                                )}
-                                            </main>
-                                            <ContextPanel />
-                                        </div>
-                                        <RightSidebar isOpen={isRightSidebarOpen}>
-                                            <ErrorBoundary><RightSidebarTabs /></ErrorBoundary>
-                                        </RightSidebar>
+                                            )}
+                                        </main>
+                                        <ContextPanel />
                                     </div>
                                 </div>
                             </div>
+                            <RightSidebar
+                                isOpen={isRightSidebarOpen}
+                                className="border-0"
+                                onTopActionsHostChange={setDesktopRightSidebarActionsHost}
+                            >
+                                <ErrorBoundary><RightSidebarTabs /></ErrorBoundary>
+                            </RightSidebar>
                         </div>
 
-                        {/* Multi-Run Launcher: replaces tabs content only */}
-                        {isMultiRunLauncherOpen && (
-                            <div className={cn('absolute inset-0 z-10 bg-background')}>
-                                <ErrorBoundary>
-                                    <MultiRunLauncher
-                                        initialPrompt={multiRunLauncherPrefillPrompt}
-                                        onCreated={() => setMultiRunLauncherOpen(false)}
-                                        onCancel={() => setMultiRunLauncherOpen(false)}
-                                    />
-                                </ErrorBoundary>
-                            </div>
-                        )}
                     </div>
 
                     {/* Desktop settings: windowed dialog with blur */}

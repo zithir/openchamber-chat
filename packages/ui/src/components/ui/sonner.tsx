@@ -12,6 +12,19 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
       closeButton={false}
+      toastOptions={{
+        style: {
+          borderRadius: "var(--radius-lg)",
+          backdropFilter: 'blur(28px)',
+          WebkitBackdropFilter: 'blur(28px)',
+        },
+        classNames: {
+          toast: "rounded-[var(--radius-lg)]",
+          actionButton: "rounded-[var(--radius-md)]",
+          cancelButton: "rounded-[var(--radius-md)]",
+          closeButton: "rounded-[var(--radius-md)]",
+        },
+      }}
       style={
         {
           "--normal-bg": "var(--popover)",

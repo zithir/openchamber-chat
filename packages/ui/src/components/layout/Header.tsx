@@ -164,6 +164,7 @@ export const Header: React.FC<HeaderProps> = ({
   const runtimeApis = useRuntimeAPIs();
 
   const getContextUsage = useSessionStore((state) => state.getContextUsage);
+  const openNewSessionDraft = useSessionStore((state) => state.openNewSessionDraft);
   const currentSessionId = useSessionStore((state) => state.currentSessionId);
   const currentSessionMessages = useSessionStore((state) => {
     if (!currentSessionId) {
@@ -177,7 +178,6 @@ export const Header: React.FC<HeaderProps> = ({
   const availableWorktreesByProject = useSessionStore((state) => state.availableWorktreesByProject);
   const sessionStatus = useSessionStore((state) => state.sessionStatus);
   const sessionAttentionStates = useSessionStore((state) => state.sessionAttentionStates);
-  const openNewSessionDraft = useSessionStore((state) => state.openNewSessionDraft);
   const quotaResults = useQuotaStore((state) => state.results);
   const fetchAllQuotas = useQuotaStore((state) => state.fetchAllQuotas);
   const isQuotaLoading = useQuotaStore((state) => state.isLoading);
@@ -733,13 +733,12 @@ export const Header: React.FC<HeaderProps> = ({
     if (!state.newSessionDraft?.open) {
       return '';
     }
-    return normalize(state.newSessionDraft.directoryOverride ?? '');
+    return normalize(state.newSessionDraft.bootstrapPendingDirectory ?? state.newSessionDraft.directoryOverride ?? '');
   });
 
   const openDirectory = React.useMemo(() => {
     return worktreeDirectory || sessionDirectory || draftDirectory;
   }, [draftDirectory, sessionDirectory, worktreeDirectory]);
-
 
   const [planTabAvailable, setPlanTabAvailable] = React.useState(false);
   const showPlanTab = planTabAvailable;
@@ -880,7 +879,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
 
     const panelState = contextPanelByDirectory[directory];
-    if (panelState?.isOpen && panelState.mode === 'context') {
+    if (panelState?.isOpen) {
       closeContextPanel(directory);
       return;
     }
@@ -894,7 +893,7 @@ export const Header: React.FC<HeaderProps> = ({
       return false;
     }
     const panelState = contextPanelByDirectory[directory];
-    return Boolean(panelState?.isOpen && panelState.mode === 'context');
+    return Boolean(panelState?.isOpen);
   }, [contextPanelByDirectory, openDirectory]);
 
   const handleOpenContextPlan = React.useCallback(() => {
@@ -904,7 +903,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
 
     const panelState = contextPanelByDirectory[directory];
-    if (panelState?.isOpen && panelState.mode === 'plan') {
+    if (panelState?.isOpen) {
       closeContextPanel(directory);
       return;
     }
@@ -918,18 +917,14 @@ export const Header: React.FC<HeaderProps> = ({
       return false;
     }
     const panelState = contextPanelByDirectory[directory];
-    return Boolean(panelState?.isOpen && panelState.mode === 'plan');
+    return Boolean(panelState?.isOpen);
   }, [contextPanelByDirectory, openDirectory]);
 
   const headerIconButtonClass = 'app-region-no-drag inline-flex h-9 w-9 items-center justify-center gap-2 p-2 rounded-md typography-ui-label font-medium text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50 hover:text-foreground hover:bg-interactive-hover transition-colors';
 
   const desktopPaddingClass = React.useMemo(() => {
-    if (isDesktopApp && isMacPlatform) {
-      // Always reserve space for Mac traffic lights since header is always on top
-      return 'pl-[5.5rem]';
-    }
     return 'pl-3';
-  }, [isDesktopApp, isMacPlatform]);
+  }, []);
 
   const macosHeaderSizeClass = React.useMemo(() => {
     if (!isDesktopApp || !isMacPlatform || macosMajorVersion === null) {
@@ -967,18 +962,26 @@ export const Header: React.FC<HeaderProps> = ({
       return () => { };
     }
 
-    const observer = new ResizeObserver(() => {
-      updateHeaderHeight();
-    });
+    let rafId = 0;
+    const scheduleUpdate = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        updateHeaderHeight();
+      });
+    };
+
+    const observer = new ResizeObserver(scheduleUpdate);
 
     observer.observe(node);
-    window.addEventListener('resize', updateHeaderHeight);
-    window.addEventListener('orientationchange', updateHeaderHeight);
+    window.addEventListener('resize', scheduleUpdate);
+    window.addEventListener('orientationchange', scheduleUpdate);
 
     return () => {
+      if (rafId) cancelAnimationFrame(rafId);
       observer.disconnect();
-      window.removeEventListener('resize', updateHeaderHeight);
-      window.removeEventListener('orientationchange', updateHeaderHeight);
+      window.removeEventListener('resize', scheduleUpdate);
+      window.removeEventListener('orientationchange', scheduleUpdate);
     };
   }, [updateHeaderHeight]);
 
@@ -2291,8 +2294,8 @@ export const Header: React.FC<HeaderProps> = ({
                         <div className="flex items-center justify-between gap-3 px-3 py-2.5">
                           <div className="flex min-w-0 items-center gap-2">
                             <span className="typography-ui-header font-semibold text-foreground">Rate limits</span>
-                            <span className="truncate typography-ui-label text-muted-foreground">
-                              Last updated {formatTime(quotaLastUpdated)}
+                            <span className="truncate typography-micro text-muted-foreground">
+                              {formatTime(quotaLastUpdated)}
                             </span>
                           </div>
                           <div className="flex items-center gap-1.5">
@@ -2319,151 +2322,141 @@ export const Header: React.FC<HeaderProps> = ({
                           </div>
                         </div>
                       </div>
-                      {!hasRateLimits && (
-                        <DropdownMenuItem
-                          className="cursor-default hover:bg-transparent focus:bg-transparent data-[highlighted]:bg-transparent"
-                          onSelect={(event) => event.preventDefault()}
-                        >
-                          <span className="typography-ui-label text-muted-foreground">No rate limits available.</span>
-                        </DropdownMenuItem>
-                      )}
-                      {rateLimitGroups.map((group) => (
-                        <React.Fragment key={group.providerId}>
-                          <DropdownMenuLabel className="flex items-center gap-2 border-b border-[var(--interactive-border)] bg-[var(--surface-elevated)] typography-ui-label text-foreground">
-                            <ProviderLogo providerId={group.providerId} className="h-4 w-4" />
-                            {group.providerName}
-                          </DropdownMenuLabel>
 
-                          {group.entries.length === 0 && (!group.modelFamilies || group.modelFamilies.length === 0) ? (
-                            <DropdownMenuItem
-                              key={`${group.providerId}-empty`}
-                              className="cursor-default hover:bg-transparent focus:bg-transparent data-[highlighted]:bg-transparent"
-                              onSelect={(event) => event.preventDefault()}
-                            >
-                              <span className="typography-ui-label text-muted-foreground">
-                                {group.error ?? 'No rate limits reported.'}
-                              </span>
-                            </DropdownMenuItem>
-                          ) : (
-                            <>
-                              {group.entries.map(([label, window]) => {
-                                const displayPercent = quotaDisplayMode === 'remaining'
-                                  ? window.remainingPercent
-                                  : window.usedPercent;
-                                const paceInfo = calculatePace(window.usedPercent, window.resetAt, window.windowSeconds, label);
-                                const expectedMarker = paceInfo?.dailyAllocationPercent != null
-                                  ? (quotaDisplayMode === 'remaining'
-                                      ? 100 - calculateExpectedUsagePercent(paceInfo.elapsedRatio)
-                                      : calculateExpectedUsagePercent(paceInfo.elapsedRatio))
-                                  : null;
-                                return (
-                                  <DropdownMenuItem
-                                    key={`${group.providerId}-${label}`}
-                                    className="cursor-default items-start hover:bg-transparent focus:bg-transparent data-[highlighted]:bg-transparent"
-                                    onSelect={(event) => event.preventDefault()}
-                                  >
-                                    <span className="flex min-w-0 flex-1 flex-col gap-2">
-                                      <span className="flex min-w-0 items-center justify-between gap-3">
-                                        <span className="min-w-0 flex items-center gap-2">
+                      {!hasRateLimits && (
+                        <div className="px-4 py-6 text-center">
+                          <span className="typography-ui-label text-muted-foreground">No rate limits available.</span>
+                        </div>
+                      )}
+
+                      {/* Mobile provider groups */}
+                      <div className="py-1">
+                        {rateLimitGroups.map((group, index) => (
+                          <React.Fragment key={group.providerId}>
+                            {index > 0 ? (
+                              <div className="mx-4 my-1 border-t border-[var(--interactive-border)]" />
+                            ) : null}
+
+                            {/* Provider header */}
+                            <div className="flex items-center gap-2 px-4 py-2">
+                              <ProviderLogo providerId={group.providerId} className="h-4 w-4" />
+                              <span className="typography-ui-label font-medium text-foreground">{group.providerName}</span>
+                            </div>
+
+                            {group.entries.length === 0 && (!group.modelFamilies || group.modelFamilies.length === 0) ? (
+                              <div className="px-4 pb-2">
+                                <span className="typography-ui-label text-muted-foreground">
+                                  {group.error ?? 'No rate limits reported.'}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="space-y-3 px-4 pb-2">
+                                {/* Window-level entries */}
+                                {group.entries.map(([label, window]) => {
+                                  const displayPercent = quotaDisplayMode === 'remaining'
+                                    ? window.remainingPercent
+                                    : window.usedPercent;
+                                  const paceInfo = calculatePace(window.usedPercent, window.resetAt, window.windowSeconds, label);
+                                  const expectedMarker = paceInfo?.dailyAllocationPercent != null
+                                    ? (quotaDisplayMode === 'remaining'
+                                        ? 100 - calculateExpectedUsagePercent(paceInfo.elapsedRatio)
+                                        : calculateExpectedUsagePercent(paceInfo.elapsedRatio))
+                                    : null;
+                                  return (
+                                    <div key={`${group.providerId}-${label}`} className="flex flex-col gap-1.5">
+                                      <div className="flex min-w-0 items-center justify-between gap-3">
+                                        <div className="min-w-0 flex items-center gap-2">
                                           <span className="truncate typography-ui-label text-foreground">{formatWindowLabel(label)}</span>
                                           {(window.resetAfterFormatted ?? window.resetAtFormatted) ? (
-                                            <span className="truncate typography-ui-label text-muted-foreground">
+                                            <span className="truncate typography-micro text-muted-foreground">
                                               {window.resetAfterFormatted ?? window.resetAtFormatted}
                                             </span>
                                           ) : null}
-                                        </span>
+                                        </div>
                                         <span className="typography-ui-label text-foreground tabular-nums">
                                           {formatPercent(displayPercent) === '-' ? '' : formatPercent(displayPercent)}
                                         </span>
-                                      </span>
+                                      </div>
                                       <UsageProgressBar
                                         percent={displayPercent}
                                         tonePercent={window.usedPercent}
                                         className="h-1.5"
                                         expectedMarkerPercent={expectedMarker}
                                       />
-                                      {paceInfo && (
-                                        <div className="mb-1">
-                                          <PaceIndicator paceInfo={paceInfo} compact />
-                                        </div>
-                                      )}
-                                    </span>
-                                  </DropdownMenuItem>
-                                );
-                              })}
+                                      {paceInfo ? (
+                                        <PaceIndicator paceInfo={paceInfo} compact />
+                                      ) : null}
+                                    </div>
+                                  );
+                                })}
 
-                              {group.modelFamilies && group.modelFamilies.length > 0 && (
-                                <div className="px-2 py-1">
-                                  {group.modelFamilies.map((family) => {
-                                    const providerExpandedFamilies = expandedFamilies[group.providerId] ?? [];
-                                    const isExpanded = providerExpandedFamilies.includes(family.familyId ?? 'other');
+                                {/* Model family collapsibles */}
+                                {group.modelFamilies && group.modelFamilies.length > 0 && (
+                                  <div className="space-y-0.5">
+                                    {group.modelFamilies.map((family) => {
+                                      const providerExpandedFamilies = expandedFamilies[group.providerId] ?? [];
+                                      const isExpanded = providerExpandedFamilies.includes(family.familyId ?? 'other');
 
-                                    return (
-                                      <Collapsible
-                                        key={family.familyId ?? 'other'}
-                                        open={isExpanded}
-                                        onOpenChange={() => toggleFamilyExpanded(group.providerId, family.familyId ?? 'other')}
-                                      >
-                                        <CollapsibleTrigger className="flex w-full items-center justify-between py-1.5 text-left">
-                                          <span className="typography-ui-label font-medium text-foreground">
-                                            {family.familyLabel}
-                                          </span>
-                                          {isExpanded ? (
-                                            <RiArrowDownSLine className="h-4 w-4 text-muted-foreground" />
-                                          ) : (
-                                            <RiArrowRightSLine className="h-4 w-4 text-muted-foreground" />
-                                          )}
-                                        </CollapsibleTrigger>
-                                        <CollapsibleContent>
-                                          <div className="space-y-1 pl-2">
-                                            {family.models.map(([modelName, window]) => {
-                                              const displayPercent = quotaDisplayMode === 'remaining'
-                                                ? window.remainingPercent
-                                                : window.usedPercent;
-                                              const paceInfo = calculatePace(window.usedPercent, window.resetAt, window.windowSeconds);
-                                              const expectedMarker = paceInfo?.dailyAllocationPercent != null
-                                                ? (quotaDisplayMode === 'remaining'
-                                                    ? 100 - calculateExpectedUsagePercent(paceInfo.elapsedRatio)
-                                                    : calculateExpectedUsagePercent(paceInfo.elapsedRatio))
-                                                : null;
-                                              return (
-                                                <div
-                                                  key={`${group.providerId}-${modelName}`}
-                                                  className="py-1.5"
-                                                >
-                                                  <div className="flex min-w-0 flex-col gap-1.5">
-                                                    <span className="flex min-w-0 items-center justify-between gap-3">
+                                      return (
+                                        <Collapsible
+                                          key={family.familyId ?? 'other'}
+                                          open={isExpanded}
+                                          onOpenChange={() => toggleFamilyExpanded(group.providerId, family.familyId ?? 'other')}
+                                        >
+                                          <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-1 py-1.5 text-left hover:bg-[var(--interactive-hover)]/50 transition-colors">
+                                            <span className="typography-ui-label font-medium text-foreground">
+                                              {family.familyLabel}
+                                            </span>
+                                            {isExpanded ? (
+                                              <RiArrowDownSLine className="h-4 w-4 text-muted-foreground" />
+                                            ) : (
+                                              <RiArrowRightSLine className="h-4 w-4 text-muted-foreground" />
+                                            )}
+                                          </CollapsibleTrigger>
+                                          <CollapsibleContent>
+                                            <div className="space-y-2.5 pb-1 pl-1 pt-1">
+                                              {family.models.map(([modelName, window]) => {
+                                                const displayPercent = quotaDisplayMode === 'remaining'
+                                                  ? window.remainingPercent
+                                                  : window.usedPercent;
+                                                const paceInfo = calculatePace(window.usedPercent, window.resetAt, window.windowSeconds);
+                                                const expectedMarker = paceInfo?.dailyAllocationPercent != null
+                                                  ? (quotaDisplayMode === 'remaining'
+                                                      ? 100 - calculateExpectedUsagePercent(paceInfo.elapsedRatio)
+                                                      : calculateExpectedUsagePercent(paceInfo.elapsedRatio))
+                                                  : null;
+                                                return (
+                                                  <div key={`${group.providerId}-${modelName}`} className="flex flex-col gap-1.5">
+                                                    <div className="flex min-w-0 items-center justify-between gap-3">
                                                       <span className="truncate typography-micro text-muted-foreground">{getDisplayModelName(modelName)}</span>
                                                       <span className="typography-ui-label text-foreground tabular-nums">
                                                         {formatPercent(displayPercent) === '-' ? '' : formatPercent(displayPercent)}
                                                       </span>
-                                                    </span>
+                                                    </div>
                                                     <UsageProgressBar
                                                       percent={displayPercent}
                                                       tonePercent={window.usedPercent}
                                                       className="h-1.5"
                                                       expectedMarkerPercent={expectedMarker}
                                                     />
-                                                    {paceInfo && (
-                                                      <div className="mb-1">
-                                                        <PaceIndicator paceInfo={paceInfo} compact />
-                                                      </div>
-                                                    )}
+                                                    {paceInfo ? (
+                                                      <PaceIndicator paceInfo={paceInfo} compact />
+                                                    ) : null}
                                                   </div>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </CollapsibleContent>
-                                      </Collapsible>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </React.Fragment>
-                      ))}
+                                                );
+                                              })}
+                                            </div>
+                                          </CollapsibleContent>
+                                        </Collapsible>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2481,13 +2474,13 @@ export const Header: React.FC<HeaderProps> = ({
                       'relative',
                       rightDrawerOpen && 'bg-interactive-selection text-interactive-selection-foreground'
                     )}
-                    aria-label={rightDrawerOpen ? 'Close git sidebar' : 'Open git sidebar'}
+                    aria-label={rightDrawerOpen ? 'Close sidebar' : 'Open sidebar'}
                   >
                     <RiLayoutRightLine className="h-5 w-5" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>{rightDrawerOpen ? 'Close git sidebar' : 'Open git sidebar'}</p>
+                  <p>{rightDrawerOpen ? 'Close sidebar' : 'Open sidebar'}</p>
                 </TooltipContent>
               </Tooltip>
             ) : null}
@@ -2515,6 +2508,7 @@ export const Header: React.FC<HeaderProps> = ({
         <ProjectEditDialog
           open={Boolean(editingProject)}
           onOpenChange={(open) => { if (!open) setEditingProject(null); }}
+          projectId={editingProject.id}
           projectName={editingProject.name}
           projectPath={editingProject.path}
           initialIcon={editingProject.icon}
