@@ -1,7 +1,6 @@
 import React from 'react';
 import { RiFolder3Line } from '@remixicon/react';
 
-import { AnimatedTabs } from '@/components/ui/animated-tabs';
 import { useUIStore } from '@/stores/useUIStore';
 import { SidebarFilesTree } from './SidebarFilesTree';
 

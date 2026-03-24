@@ -88,7 +88,6 @@ import { useDeviceInfo } from '@/lib/device';
 import { isVSCodeRuntime } from '@/lib/desktop';
 import { updateDesktopSettings } from '@/lib/persistence';
 import { GitHubIssuePickerDialog } from './GitHubIssuePickerDialog';
-import { GitHubPullRequestPickerDialog } from './GitHubPullRequestPickerDialog';
 import { ProjectNotesTodoPanel } from './ProjectNotesTodoPanel';
 import { BranchPickerDialog } from './BranchPickerDialog';
 import { useSessionFoldersStore } from '@/stores/useSessionFoldersStore';
@@ -712,7 +711,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
   const [expandedSessionGroups, setExpandedSessionGroups] = React.useState<Set<string>>(new Set());
   const [hoveredProjectId, setHoveredProjectId] = React.useState<string | null>(null);
   const [issuePickerOpen, setIssuePickerOpen] = React.useState(false);
-  const [pullRequestPickerOpen, setPullRequestPickerOpen] = React.useState(false);
   const [isBranchPickerOpen, setIsBranchPickerOpen] = React.useState(false);
   const [projectNotesPanelOpen, setProjectNotesPanelOpen] = React.useState(false);
   const [stuckProjectHeaders, setStuckProjectHeaders] = React.useState<Set<string>>(new Set());
@@ -3125,17 +3123,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({
         open={issuePickerOpen}
         onOpenChange={(open) => {
           setIssuePickerOpen(open);
-          if (!open && mobileVariant) {
-            setActiveMainTab('chat');
-            setSessionSwitcherOpen(false);
-          }
-        }}
-      />
-
-      <GitHubPullRequestPickerDialog
-        open={pullRequestPickerOpen}
-        onOpenChange={(open) => {
-          setPullRequestPickerOpen(open);
           if (!open && mobileVariant) {
             setActiveMainTab('chat');
             setSessionSwitcherOpen(false);
